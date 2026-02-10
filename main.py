@@ -1,18 +1,23 @@
 import asyncio
-try:
-    asyncio.get_event_loop()
-except RuntimeError:
-    asyncio.set_event_loop(asyncio.new_event_loop())
-
-from pyrogram import Client, filters, idle
 import os
 import logging
 import re
 import aiohttp
 import time
+import signal
 from urllib.parse import quote
-from pyrogram import Client, filters, idle
-from pyrogram.handlers import MessageHandler, CallbackQueryHandler, InlineQueryHandler
+# ---------------------------------------------------------
+# Fix for Streamlit/Asyncio Loop Issue
+# ---------------------------------------------------------
+try:
+    asyncio.get_event_loop()
+except RuntimeError:
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+# ---------------------------------------------------------
+
+from pyrogram import Client, filters
+from pyrogram.handlers import MessageHandler
 from pyrogram.enums import ChatType, ChatAction
 from pyrogram.types import (
     Message, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove,
@@ -26,7 +31,11 @@ from pyrogram.errors import (
     ReactionInvalid, MessageIdInvalid, ChatSendInlineForbidden
 )
 from datetime import datetime
-from zoneinfo import ZoneInfo
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    from backports.zoneinfo import ZoneInfo # Fallback if needed
+
 from flask import Flask
 from threading import Thread
 import random
@@ -58,7 +67,7 @@ def patch_peer_id_validation():
 patch_peer_id_validation()
 
 # =======================================================
-# ⚠️ Main Settings
+# ⚠️ Main Settings (UPDATED)
 # =======================================================
 API_ID = 9536480
 API_HASH = "4e52f6f12c47a0da918009260b6e3d44"
@@ -67,12 +76,16 @@ API_HASH = "4e52f6f12c47a0da918009260b6e3d44"
 BOT_TOKEN = "8481431417:AAEB4dNawnyCQBH8KHtkKaFaQu_AcbmlHu0" 
 
 # --- Database Setup (MongoDB) ---
+# لطفا آدرس دیتابیس خود را اینجا جایگذاری کنید. اگر پسورد دارید <db_password> را تغییر دهید.
 MONGO_URI = "mongodb+srv://111111:<db_password>@cluster0.gtkw6em.mongodb.net/?appName=Cluster0"
 mongo_client = None
 sessions_collection = None
+
+# بررسی اولیه برای جلوگیری از کرش اگر URI تنظیم نشده باشد
 if MONGO_URI and "<db_password>" not in MONGO_URI:
     try:
         mongo_client = MongoClient(MONGO_URI, server_api=ServerApi('1'), tlsCAFile=certifi.where())
+        # تست اتصال
         mongo_client.admin.command('ping')
         db = mongo_client['telegram_self_bot']
         sessions_collection = db['sessions']
@@ -82,10 +95,16 @@ if MONGO_URI and "<db_password>" not in MONGO_URI:
         mongo_client = None
         sessions_collection = None
 else:
-    logging.warning("MONGO_URI is not configured correctly.")
+    logging.warning("MONGO_URI is not configured correctly or contains placeholder.")
 
 # --- Application Variables ---
-TEHRAN_TIMEZONE = ZoneInfo("Asia/Tehran")
+# اگر سیستم شما تایم‌زون تهران را ندارد، ممکن است نیاز به تنظیم دستی باشد
+try:
+    TEHRAN_TIMEZONE = ZoneInfo("Asia/Tehran")
+except:
+    import pytz
+    TEHRAN_TIMEZONE = pytz.timezone("Asia/Tehran")
+
 app_flask = Flask(__name__)
 app_flask.secret_key = os.environ.get("FLASK_SECRET_KEY", os.urandom(24))
 
@@ -422,10 +441,10 @@ async def start_bot_instance(session_string: str, phone: str, font_style: str, d
 
     if user_id in ACTIVE_BOTS:
         for t in ACTIVE_BOTS[user_id][1]: t.cancel()
-    
+     
     USER_FONT_CHOICES[user_id] = font_style
     CLOCK_STATUS[user_id] = not disable_clock
-    
+     
     client.add_handler(MessageHandler(lambda c, m: m.delete() if PV_LOCK_STATUS.get(c.me.id) else None, filters.private & ~filters.me & ~filters.bot), group=-5)
     client.add_handler(MessageHandler(lambda c, m: c.read_chat_history(m.chat.id) if AUTO_SEEN_STATUS.get(c.me.id) else None, filters.private & ~filters.me), group=-4)
     client.add_handler(MessageHandler(incoming_message_manager, filters.all & ~filters.me), group=-3)
@@ -589,7 +608,7 @@ async def text_handler(client, message):
 
 async def finalize(message, user_c, phone):
     s_str = await user_c.export_session_string(); me = await user_c.get_me(); await user_c.disconnect()
-    if sessions_collection:
+    if sessions_collection is not None:
         sessions_collection.update_one({'phone_number': phone}, {'$set': {'session_string': s_str, 'user_id': me.id}}, upsert=True)
     asyncio.create_task(start_bot_instance(s_str, phone, 'stylized'))
     del LOGIN_STATES[message.chat.id]; await message.reply_text("✅ فعال شد! دستور `پنل` را در اکانت خود بزنید.")
@@ -600,10 +619,31 @@ def home(): return "Bot is running..."
 
 async def main():
     Thread(target=lambda: app_flask.run(host='0.0.0.0', port=10000), daemon=True).start()
-    if sessions_collection:
-        for doc in sessions_collection.find():
-            asyncio.create_task(start_bot_instance(doc['session_string'], doc.get('phone_number'), doc.get('font_style', 'stylized')))
-    await manager_bot.start(); await idle()
+    
+    # Reload previous sessions
+    if sessions_collection is not None:
+        try:
+            for doc in sessions_collection.find():
+                asyncio.create_task(start_bot_instance(doc['session_string'], doc.get('phone_number'), doc.get('font_style', 'stylized')))
+        except Exception as e:
+            logging.error(f"Error loading sessions: {e}")
+
+    await manager_bot.start()
+    print("🤖 Manager Bot Started Successfully.")
+    
+    # -------------------------------------------------------------
+    # IMPORTANT: REPLACING idle() TO FIX STREAMLIT SIGNAL ERROR
+    # -------------------------------------------------------------
+    # Instead of 'await idle()', we use a simple infinite sleep
+    # because idle() tries to access signals which fails in Streamlit's thread.
+    stop_event = asyncio.Event()
+    await stop_event.wait()
 
 if __name__ == "__main__":
-    asyncio.get_event_loop().run_until_complete(main())
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    
+    loop.run_until_complete(main())
