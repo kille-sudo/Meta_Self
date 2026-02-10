@@ -1465,7 +1465,11 @@ def main():
     from telegram.request import HTTPXRequest
     request = HTTPXRequest(connection_pool_size=8)
     application = (Application.builder().token(BOT_TOKEN).request(request).post_init(post_init).build())
-    
+    application = Application.builder() \
+    .token(BOT_TOKEN) \
+    .request(request) \
+    .post_init(post_init) \
+    .build()
     # Forced Join Middleware
     application.add_handler(TypeHandler(Update, membership_check_handler), group=-1)
 
@@ -1473,7 +1477,10 @@ def main():
     application.add_handler(MessageHandler(filters.Regex("^💰 موجودی$"), show_balance))
     application.add_handler(MessageHandler(filters.Regex("^🎁 الماس رایگان$"), get_referral_link))
     application.add_handler(MessageHandler(filters.Regex("^🔄 تمدید و ادامه سرویس$"), continue_service_handler))
-    
+    application.add_handler(TypeHandler(Update, membership_check_handler), group=-1)
+    application.add_handler(CommandHandler("start", start_command))
+
+
     self_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^🤖 فعال‌سازی سلف$"), self_bot_activation_entry)],
         states={
@@ -1558,7 +1565,9 @@ def main():
     application.add_handler(MessageHandler(filters.Regex(r'^موجودی 💰$') & filters.ChatType.GROUPS, group_balance_handler))
     
     application.add_handler(CallbackQueryHandler(callback_query_handler))
-    application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+    application.run_polling(
+        allowed_updates=Update.ALL_TYPES,
+        drop_pending_updates=True)
 
 if __name__ == "__main__":
     main()
