@@ -1,4 +1,16 @@
 import asyncio
+import sys
+
+# ==== FIX: Event Loop برای Python 3.10+ و Pyrogram ====
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+else:
+    try:
+        asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
 import logging
 import os
 import re
@@ -36,6 +48,7 @@ from pyrogram.errors import (
 )
 import pyrogram.utils
 
+# بقیه کد...
 # =======================================================
 #  بخش ۱: تنظیمات اولیه و پیکربندی
 # =======================================================
