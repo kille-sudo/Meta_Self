@@ -3,6 +3,7 @@ import logging
 from datetime import datetime
 import pytz
 from telethon import TelegramClient, events, functions, errors
+from telethon.sessions import MemorySession  # اضافه شد برای رفع ارور دیتابیس
 
 # ----------------------------------------------------------------
 # تنظیمات (این‌ها را پر کنید)
@@ -26,9 +27,9 @@ STATE_WAITING_CODE = 'WAITING_CODE'
 STATE_WAITING_PASSWORD = 'WAITING_PASSWORD'
 STATE_LOGGED_IN = 'LOGGED_IN'
 
-# کلاینت ربات (تعریف اولیه بدون استارت)
-# تغییر مهم: اینجا دیگر .start() را صدا نمی‌زنیم تا خطا ندهد
-bot = TelegramClient('bot_session', API_ID, API_HASH)
+# کلاینت ربات
+# تغییر مهم: استفاده از MemorySession برای جلوگیری از ارور "database is locked"
+bot = TelegramClient(MemorySession(), API_ID, API_HASH)
 
 # ----------------------------------------------------------------
 # بخش 1: لاجیک ساعت
@@ -83,8 +84,11 @@ async def start_bio_clock(user_client, chat_id):
 @bot.on(events.NewMessage(pattern='/start'))
 async def start_handler(event):
     chat_id = event.chat_id
-    if chat_id in user_sessions and user_sessions[chat_id].get('client'):
-        await user_sessions[chat_id]['client'].disconnect()
+    # پاکسازی سشن قبلی اگر وجود داشته باشد
+    if chat_id in user_sessions:
+        old_client = user_sessions[chat_id].get('client')
+        if old_client:
+            await old_client.disconnect()
     
     user_sessions[chat_id] = {'state': STATE_WAITING_PHONE}
     
@@ -117,8 +121,8 @@ async def message_handler(event):
 
         await event.respond("⏳ در حال اتصال به سرور تلگرام و درخواست کد...")
         
-        # ساخت کلاینت جدید برای کاربر (بدون استفاده از حلقه سراسری)
-        user_client = TelegramClient(f'session_{chat_id}', API_ID, API_HASH)
+        # تغییر مهم: استفاده از MemorySession برای کاربر هم جهت جلوگیری از تداخل فایل
+        user_client = TelegramClient(MemorySession(), API_ID, API_HASH)
         await user_client.connect()
 
         try:
@@ -160,7 +164,7 @@ async def message_handler(event):
             await event.respond("🔒 این اکانت دارای تایید دو مرحله‌ای است.\nلطفا رمز عبور (Password) خود را وارد کنید:")
             
         except errors.PhoneCodeInvalidError:
-            await event.respond("❌ کد وارد شده اشتباه است. لطفا دوباره کد صحیح را بفرستید.")
+            await event.respond("❌ کد وارد شده اشتباه است یا منقضی شده.\nلطفا مجدد /start را بزنید و سریع‌تر کد را وارد کنید.")
         except Exception as e:
             await event.respond(f"❌ خطا: {str(e)}\nمجدد تلاش کنید: /start")
 
@@ -180,7 +184,7 @@ async def message_handler(event):
             await event.respond(f"❌ خطا: {str(e)}\nمجدد تلاش کنید: /start")
 
 # ----------------------------------------------------------------
-# اجرای برنامه (اصلاح شده برای رفع ارور Loop)
+# اجرای برنامه
 # ----------------------------------------------------------------
 async def main():
     # استارت کردن ربات در داخل تابع async
@@ -191,7 +195,7 @@ async def main():
     await bot.run_until_disconnected()
 
 if __name__ == '__main__':
-    # استفاده از asyncio.run برای مدیریت صحیح Event Loop در پایتون جدید
+    # استفاده از asyncio.run برای مدیریت صحیح Event Loop
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
