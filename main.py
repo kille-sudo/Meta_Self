@@ -18,7 +18,6 @@ BIO_TEMPLATE = "Time in Iran: {time} | 🇮🇷"
 logging.basicConfig(format='[%(levelname)s] %(message)s', level=logging.INFO)
 
 # دیکشنری برای ذخیره وضعیت کاربران و کلاینت‌ها
-# ساختار: {chat_id: {'client': TelegramClient, 'phone': str, 'phone_code_hash': str, 'state': str}}
 user_sessions = {}
 
 # وضعیت‌ها
@@ -27,14 +26,15 @@ STATE_WAITING_CODE = 'WAITING_CODE'
 STATE_WAITING_PASSWORD = 'WAITING_PASSWORD'
 STATE_LOGGED_IN = 'LOGGED_IN'
 
-# کلاینت ربات (رابط کاربری شما)
-bot = TelegramClient('bot_session', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
+# کلاینت ربات (تعریف اولیه بدون استارت)
+# تغییر مهم: اینجا دیگر .start() را صدا نمی‌زنیم تا خطا ندهد
+bot = TelegramClient('bot_session', API_ID, API_HASH)
 
 # ----------------------------------------------------------------
-# بخش 1: لاجیک ساعت (بدون تغییر در عملکرد، فقط تبدیل به تابع)
+# بخش 1: لاجیک ساعت
 # ----------------------------------------------------------------
 async def start_bio_clock(user_client, chat_id):
-    """این تابع دقیقاً همان کاری را می‌کند که در فایل قبلی انجام می‌شد"""
+    """این تابع وظیفه تغییر ساعت بیوگرافی را دارد"""
     print(f"⏳ شروع پروسه تغییر ساعت برای کاربر {chat_id}...")
     try:
         await bot.send_message(chat_id, "✅ ورود موفقیت‌آمیز بود! ساعت بیوگرافی فعال شد.")
@@ -77,13 +77,12 @@ async def start_bio_clock(user_client, chat_id):
             await asyncio.sleep(60)
 
 # ----------------------------------------------------------------
-# بخش 2: هندلرهای ربات (برای دریافت شماره و کد)
+# بخش 2: هندلرهای ربات
 # ----------------------------------------------------------------
 
 @bot.on(events.NewMessage(pattern='/start'))
 async def start_handler(event):
     chat_id = event.chat_id
-    # اگر کلاینت قبلی وجود دارد قطع می‌کنیم تا تداخل ایجاد نشود
     if chat_id in user_sessions and user_sessions[chat_id].get('client'):
         await user_sessions[chat_id]['client'].disconnect()
     
@@ -100,7 +99,6 @@ async def message_handler(event):
     chat_id = event.chat_id
     text = event.raw_text.strip()
     
-    # اگر دستور استارت است، نادیده بگیر (چون هندلر جدا دارد)
     if text == '/start':
         return
 
@@ -119,16 +117,13 @@ async def message_handler(event):
 
         await event.respond("⏳ در حال اتصال به سرور تلگرام و درخواست کد...")
         
-        # ساخت کلاینت جدید برای کاربر
-        # از نام فایل سشن unique استفاده می‌کنیم
+        # ساخت کلاینت جدید برای کاربر (بدون استفاده از حلقه سراسری)
         user_client = TelegramClient(f'session_{chat_id}', API_ID, API_HASH)
         await user_client.connect()
 
         try:
-            # درخواست کد ورود
             send_code = await user_client.send_code_request(text)
             
-            # ذخیره اطلاعات برای مرحله بعد
             session_data['client'] = user_client
             session_data['phone'] = text
             session_data['phone_code_hash'] = send_code.phone_code_hash
@@ -157,13 +152,10 @@ async def message_handler(event):
             await event.respond("⏳ در حال بررسی کد...")
             await user_client.sign_in(phone=phone, code=text, phone_code_hash=phone_code_hash)
             
-            # اگر لاگین موفق بود
             session_data['state'] = STATE_LOGGED_IN
-            # اجرای تسک ساعت در پس‌زمینه
             asyncio.create_task(start_bio_clock(user_client, chat_id))
             
         except errors.SessionPasswordNeededError:
-            # اگر تایید دو مرحله‌ای دارد
             session_data['state'] = STATE_WAITING_PASSWORD
             await event.respond("🔒 این اکانت دارای تایید دو مرحله‌ای است.\nلطفا رمز عبور (Password) خود را وارد کنید:")
             
@@ -172,7 +164,7 @@ async def message_handler(event):
         except Exception as e:
             await event.respond(f"❌ خطا: {str(e)}\nمجدد تلاش کنید: /start")
 
-    # --- مرحله 3: دریافت پسورد (در صورت نیاز) ---
+    # --- مرحله 3: دریافت پسورد ---
     elif state == STATE_WAITING_PASSWORD:
         user_client = session_data['client']
         try:
@@ -188,8 +180,21 @@ async def message_handler(event):
             await event.respond(f"❌ خطا: {str(e)}\nمجدد تلاش کنید: /start")
 
 # ----------------------------------------------------------------
-# اجرای برنامه
+# اجرای برنامه (اصلاح شده برای رفع ارور Loop)
 # ----------------------------------------------------------------
+async def main():
+    # استارت کردن ربات در داخل تابع async
+    await bot.start(bot_token=BOT_TOKEN)
+    print("🤖 Bot started and running...")
+    
+    # اجرای ربات تا زمانی که قطع شود
+    await bot.run_until_disconnected()
+
 if __name__ == '__main__':
-    print("🤖 Bot is running...")
-    bot.run_until_disconnected()
+    # استفاده از asyncio.run برای مدیریت صحیح Event Loop در پایتون جدید
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("Bot stopped by user")
+    except Exception as e:
+        print(f"Critical Error: {e}")
