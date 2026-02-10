@@ -1,7 +1,8 @@
 import asyncio
 import sys
+import os
 
-# ==== FIX: Event Loop برای Python 3.10+ و Pyrogram ====
+# ==== FIX: Event Loop for Python 3.10+ and Pyrogram ====
 if sys.platform == 'win32':
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 else:
@@ -12,7 +13,6 @@ else:
         asyncio.set_event_loop(loop)
 
 import logging
-import os
 import re
 import secrets
 import contextlib
@@ -48,7 +48,6 @@ from pyrogram.errors import (
 )
 import pyrogram.utils
 
-# بقیه کد...
 # =======================================================
 #  بخش ۱: تنظیمات اولیه و پیکربندی
 # =======================================================
@@ -70,11 +69,11 @@ def patch_peer_id_validation():
 
 patch_peer_id_validation()
 
-# --- Environment Variables ---
-BOT_TOKEN = "8481431417:AAEB4dNawnyCQBH8KHtkKaFaQu_AcbmlHu0"
-API_ID = 9536480
-API_HASH = "4e52f6f12c47a0da918009260b6e3d44"
-OWNER_ID = 5789565027
+# --- Environment Variables (SECURE) ---
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8481431417:AAEB4dNawnyCQBH8KHtkKaFaQu_AcbmlHu0")
+API_ID = int(os.getenv("API_ID", "9536480"))
+API_HASH = os.getenv("API_HASH", "4e52f6f12c47a0da918009260b6e3d44")
+OWNER_ID = int(os.getenv("OWNER_ID", "5789565027"))
 TEHRAN_TIMEZONE = ZoneInfo("Asia/Tehran")
 
 # --- SQLite Database Configuration ---
@@ -718,7 +717,6 @@ async def start_bot_instance(session_string: str, phone: str, font_style: str, d
     client.add_handler(PyroMessageHandler(outgoing_message_modifier, pyro_filters.text & pyro_filters.me & ~pyro_filters.reply), group=-1)
     client.add_handler(PyroMessageHandler(help_controller, pyro_filters.me & pyro_filters.regex("^راهنما$")))
     client.add_handler(PyroMessageHandler(panel_command_controller, pyro_filters.me & pyro_filters.regex(r"^(پنل|panel)$")))
-    # Photo setting handlers removed here as requested
     client.add_handler(PyroMessageHandler(reply_based_controller, pyro_filters.me)) 
     client.add_handler(PyroMessageHandler(enemy_handler, pyro_filters.create(lambda _, c, m: (m.from_user.id, m.chat.id) in ACTIVE_ENEMIES.get(c.me.id, set()) or GLOBAL_ENEMY_STATUS.get(c.me.id)) & ~pyro_filters.me), group=1)
     client.add_handler(PyroMessageHandler(secretary_auto_reply_handler, pyro_filters.private & ~pyro_filters.me), group=1)
@@ -1104,7 +1102,7 @@ async def process_deposit_receipt(update: Update, context: ContextTypes.DEFAULT_
         'receipt_file_id': receipt_file_id,
         'status': 'pending',
         'type': 'diamond',
-        'timestamp': datetime.now(timezone.utc).isoformat(), # JSON serializable
+        'timestamp': datetime.now(timezone.utc).isoformat(),
         'admin_messages': []
     }
     TX_ID_COUNTER += 1
@@ -1366,10 +1364,8 @@ async def membership_check_handler(update: Update, context: ContextTypes.DEFAULT
         raise ApplicationHandlerStop
 
 # =======================================================
-#  بخش ۴: توابع اضافه شده برای جلوگیری از خطای NameError
+#  بخش ۴: توابع اضافه شده
 # =======================================================
-# این توابع در `main` فراخوانی شده بودند اما تعریف نشده بودند.
-# من پیاده‌سازی ساده‌ای برای آنها نوشتم تا کد اجرا شود.
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_doc = await get_user_async(update.effective_user.id)
@@ -1466,7 +1462,6 @@ async def post_init(application: Application):
         application.job_queue.run_repeating(billing_job, interval=60, first=10)
 
 def main():
-    # Flask removed. No background sync thread needed for SQLite.
     from telegram.request import HTTPXRequest
     request = HTTPXRequest(connection_pool_size=8)
     application = (Application.builder().token(BOT_TOKEN).request(request).post_init(post_init).build())
@@ -1555,7 +1550,6 @@ def main():
     application.add_handler(admin_conv)
     application.add_handler(InlineQueryHandler(inline_query_handler))
     
-    # Handlers defined BEFORE being added here
     application.add_handler(MessageHandler(filters.Regex(r'^(شرط|بت)$') & filters.ChatType.GROUPS, show_bet_keyboard_handler))
     application.add_handler(MessageHandler(filters.Regex(r'^(شرطبندی|شرط) \d+$') & filters.ChatType.GROUPS, start_bet_handler))
     application.add_handler(MessageHandler(filters.Regex(r'^(انتقال|transfer)\s+(\d+)$') & filters.REPLY & filters.ChatType.GROUPS, transfer_handler))
