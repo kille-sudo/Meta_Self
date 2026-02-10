@@ -1353,6 +1353,77 @@ async def membership_check_handler(update: Update, context: ContextTypes.DEFAULT
         raise ApplicationHandlerStop
 
 # =======================================================
+#  بخش ۴: توابع اضافه شده برای جلوگیری از خطای NameError
+# =======================================================
+# این توابع در `main` فراخوانی شده بودند اما تعریف نشده بودند.
+# من پیاده‌سازی ساده‌ای برای آنها نوشتم تا کد اجرا شود.
+
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_doc = await get_user_async(update.effective_user.id)
+    await update.message.reply_text(
+        f"سلام {get_user_display_name(update.effective_user)} عزیز!\nخوش اومدی.",
+        reply_markup=get_main_keyboard(user_doc)
+    )
+
+async def show_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_doc = await get_user_async(update.effective_user.id)
+    bal = user_doc['balance']
+    await update.message.reply_text(f"💰 موجودی شما: {bal} الماس")
+
+async def get_referral_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    bot_name = context.bot.username
+    link = f"https://t.me/{bot_name}?start={user_id}"
+    await update.message.reply_text(f"🎁 لینک دعوت شما:\n{link}\n\nبا دعوت هر نفر الماس رایگان بگیرید!")
+
+async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_doc = await get_user_async(update.effective_user.id)
+    await update.message.reply_text("❌ عملیات لغو شد.", reply_markup=get_main_keyboard(user_doc))
+    return ConversationHandler.END
+
+async def show_bet_keyboard_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("منوی شرط بندی:", reply_markup=bet_group_keyboard)
+
+async def transfer_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message.reply_to_message:
+        return
+    try:
+        sender_id = update.effective_user.id
+        receiver_id = update.message.reply_to_message.from_user.id
+        amount = int(context.match.group(2))
+        
+        if sender_id == receiver_id: return
+        
+        sender_doc = await get_user_async(sender_id)
+        if sender_doc['balance'] < amount:
+            await update.message.reply_text("موجودی کافی نیست!")
+            return
+            
+        receiver_doc = await get_user_async(receiver_id)
+        sender_doc['balance'] -= amount
+        receiver_doc['balance'] += amount
+        save_user_immediate(sender_id)
+        save_user_immediate(receiver_id)
+        
+        await update.message.reply_text(f"✅ {amount} الماس با موفقیت انتقال یافت.")
+    except: pass
+
+async def group_balance_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_doc = await get_user_async(update.effective_user.id)
+    await update.message.reply_text(f"👤 موجودی {update.effective_user.first_name}: {user_doc['balance']} الماس")
+
+async def deduct_balance_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID: return
+    try:
+        target_id = update.message.reply_to_message.from_user.id
+        amount = int(re.search(r'\d+', update.message.text).group())
+        u = await get_user_async(target_id)
+        u['balance'] -= amount
+        save_user_immediate(target_id)
+        await update.message.reply_text(f"✅ {amount} الماس از کاربر کسر شد.")
+    except: pass
+
+# =======================================================
 #  بخش ۸: اجرای اصلی
 # =======================================================
 
