@@ -84,7 +84,7 @@ patch_peer_id_validation()
 # =======================================================
 
 # Environment Variables
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8481431417:AAEB4dNawnyCQBH8KHtkKaFaQu_AcbmlHu0")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8230272382:AAFkPmzMn30b462DJYCP7gAnCdPOMQsCduA")
 API_ID = os.getenv("API_ID", "9536480")
 API_HASH = os.getenv("API_HASH", "4e52f6f12c47a0da918009260b6e3d44")
 OWNER_ID = int(os.getenv("OWNER_ID", "5789565027"))
