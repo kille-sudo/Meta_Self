@@ -71,11 +71,11 @@ def patch_peer_id_validation():
 
 patch_peer_id_validation()
 
-# --- Environment Variables (SECURE) ---
-BOT_TOKEN = ("8481431417:AAEB4dNawnyCQBH8KHtkKaFaQu_AcbmlHu0")
-API_ID = ("9536480")
-API_HASH = ("4e52f6f12c47a0da918009260b6e3d44")
-OWNER_ID = ("5789565027")
+# --- Environment Variables (SECURE) --
+BOT_TOKEN = "8481431417:AAHO3Tv7-TkWRLcYXLsVUUrbQtB7xYkGrgc"
+API_ID = 9536480
+API_HASH = "4e52f6f12c47a0da918009260b6e3d44"
+OWNER_ID = "5789565027"
 TEHRAN_TIMEZONE = ZoneInfo("Asia/Tehran")
 
 # --- SQLite Database Configuration ---
