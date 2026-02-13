@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import streamlit as st
 import asyncio
 import sys
 import os
 
 # بررسی نسخه پایتون
 if sys.version_info >= (3, 13):
-    print("⚠️ Python 3.13 پشتیبانی نمی‌شود. لطفا Python 3.11 یا 3.12 استفاده کنید.")
-    sys.exit(1)
+    st.error("⚠️ Python 3.13 پشتیبانی نمی‌شود. لطفا Python 3.11 استفاده کنید.")
+    st.stop()
 
-# ==== FIX: Event Loop for Python 3.10+ and Pyrogram ====
+# ==== FIX: Event Loop ====
 if sys.platform == 'win32':
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 else:
@@ -32,41 +33,82 @@ from datetime import datetime, timezone, timedelta
 import html
 import random
 
-# --- Flask Imports (Web Panel) ---
-from flask import Flask, render_template_string, jsonify, request as flask_request
-
-# --- Telegram Bot Imports (PTB) ---
-from telegram import (Update, ReplyKeyboardMarkup, KeyboardButton,
-                      InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove,
-                      InlineQueryResultArticle, InputTextMessageContent, InlineQueryResultCachedPhoto)
-from telegram.constants import ParseMode, ChatAction as PTBChatAction
-from telegram.ext import (Application, CommandHandler, MessageHandler,
-                          ConversationHandler, filters, ContextTypes, CallbackQueryHandler,
-                          ApplicationHandlerStop, TypeHandler, InlineQueryHandler)
-import telegram.error
-
-# --- Pyrogram Imports (Self Bot) ---
-from pyrogram import Client, filters as pyro_filters
-from pyrogram.handlers import MessageHandler as PyroMessageHandler
-from pyrogram.enums import ChatType, ChatAction
-from pyrogram.raw import functions
-from pyrogram.errors import (
-    SessionPasswordNeeded, PhoneCodeInvalid, PasswordHashInvalid,
-    PhoneNumberInvalid, PhoneCodeExpired, UserDeactivated, AuthKeyUnregistered,
-    ChatSendInlineForbidden
+# تنظیمات صفحه
+st.set_page_config(
+    page_title="🤖 ربات سلف من",
+    page_icon="🤖",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
-import pyrogram.utils
 
-# =======================================================
-#  تنظیمات لاگینگ
-# =======================================================
+# CSS سفارشی
+st.markdown("""
+<style>
+    .main { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+    .stButton>button {
+        background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+        color: white;
+        font-weight: bold;
+        border: none;
+        border-radius: 10px;
+        padding: 10px 20px;
+    }
+    .stButton>button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 15px rgba(16, 185, 129, 0.4);
+    }
+    .metric-card {
+        background: white;
+        padding: 20px;
+        border-radius: 15px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        margin: 10px 0;
+    }
+    .status-online {
+        color: #10b981;
+        font-weight: bold;
+    }
+    .status-offline {
+        color: #ef4444;
+        font-weight: bold;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname)s - %(message)s')
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("pyrogram").setLevel(logging.WARNING)
-logging.getLogger("werkzeug").setLevel(logging.WARNING)
+
+# --- Telegram Bot Imports ---
+from telegram import (Update, ReplyKeyboardMarkup, KeyboardButton,
+                      InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove,
+                      InlineQueryResultArticle, InputTextMessageContent, InlineQueryResultCachedPhoto)
+from telegram.constants import ParseMode
+from telegram.ext import (Application, CommandHandler, MessageHandler,
+                          ConversationHandler, filters, ContextTypes, CallbackQueryHandler,
+                          ApplicationHandlerStop, TypeHandler, InlineQueryHandler)
+from telegram.request import HTTPXRequest
+import telegram.error
+
+# --- Pyrogram Imports ---
+try:
+    from pyrogram import Client, filters as pyro_filters
+    from pyrogram.handlers import MessageHandler as PyroMessageHandler
+    from pyrogram.enums import ChatType, ChatAction
+    from pyrogram.raw import functions
+    from pyrogram.errors import (
+        SessionPasswordNeeded, UserDeactivated, AuthKeyUnregistered,
+        ChatSendInlineForbidden
+    )
+    import pyrogram.utils
+    PYROGRAM_AVAILABLE = True
+except ImportError:
+    PYROGRAM_AVAILABLE = False
+    st.warning("⚠️ Pyrogram نصب نیست - سلف بات غیرفعال است")
 
 def patch_peer_id_validation():
+    if not PYROGRAM_AVAILABLE:
+        return
     original_get_peer_type = pyrogram.utils.get_peer_type
     def patched_get_peer_type(peer_id: int) -> str:
         try:
@@ -83,31 +125,24 @@ patch_peer_id_validation()
 #  متغیرهای سراسری
 # =======================================================
 
-# Environment Variables
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8230272382:AAFkPmzMn30b462DJYCP7gAnCdPOMQsCduA")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8481431417:AAEB4dNawnyCQBH8KHtkKaFaQu_AcbmlHu0")
 API_ID = os.getenv("API_ID", "9536480")
 API_HASH = os.getenv("API_HASH", "4e52f6f12c47a0da918009260b6e3d44")
 OWNER_ID = int(os.getenv("OWNER_ID", "5789565027"))
 TEHRAN_TIMEZONE = ZoneInfo("Asia/Tehran")
 
-# Database
 DB_NAME = "bot_database.db"
 
-# In-Memory Cache
 GLOBAL_USERS = {}
 GLOBAL_SETTINGS = {}
 GLOBAL_TRANSACTIONS = {}
 GLOBAL_BETS = {}
 GLOBAL_CHANNELS = {}
 
-# Active Bots
 ACTIVE_BOTS = {}
 TX_ID_COUNTER = 1
 BET_ID_COUNTER = 1
 BOT_USERNAME = ""
-
-# Application instance (برای کنترل از پنل وب)
-telegram_app = None
 
 # Conversation States
 (ADMIN_MENU, AWAIT_ADMIN_REPLY,
@@ -125,404 +160,27 @@ telegram_app = None
  AWAIT_SUPPORT_MESSAGE, AWAIT_ADMIN_SUPPORT_REPLY
 ) = range(28)
 
-# Constants
-FONT_STYLES = {
-    "cursive":      {'0':'𝟎','1':'𝟏','2':'𝟐','3':'𝟑','4':'𝟒','5':'𝟓','6':'𝟔','7':'𝟕','8':'𝟖','9':'𝟗',':':':'},
-    "stylized":     {'0':'𝟬','1':'𝟭','2':'𝟮','3':'𝟯','4':'𝟰','5':'𝟱','6':'𝟲','7':'𝟳','8':'𝟴','9':'𝟵',':':':'},
-    "doublestruck": {'0':'𝟘','1':'𝟙','2':'𝟚','3':'𝟛','4':'𝟜','5':'𝟝','6':'𝟞','7':'𝟟','8':'𝟠','9':'𝟡',':':':'},
-    "monospace":    {'0':'𝟶','1':'𝟷','2':'𝟸','3':'𝟹','4':'𝟺','5':'𝟻','6':'𝟼','7':'𝟽','8':'𝟾','9':'𝟿',':':':'},
-    "normal":       {'0':'0','1':'1','2':'2','3':'3','4':'4','5':'5','6':'6','7':'7','8':'8','9':'9',':':':'},
-}
-FONT_KEYS_ORDER = ["cursive", "stylized", "doublestruck", "monospace", "normal"]
-ALL_CLOCK_CHARS = "".join(set(char for font in FONT_STYLES.values() for char in font.values()))
-CLOCK_CHARS_REGEX_CLASS = f"[{re.escape(ALL_CLOCK_CHARS)}]"
-
-ENEMY_REPLIES = ["ببخشید متوجه نشدم؟", "داری فشار میخوری؟", "برو پیش بزرگترت", "سطحت پایینه", "😂😂", "اوکی بای"]
-SECRETARY_REPLY_MESSAGE = "سلام! در حال حاضر آفلاین هستم و پیام شما را دریافت کردم. در اولین فرصت پاسخ خواهم داد. ممنون از پیامتون."
-COMMAND_REGEX = r"^(راهنما|ذخیره|تکرار \d+|حذف \d+|ریاکشن .*|ریاکشن خاموش|کپی روشن|کپی خاموش|لیست دشمن|تاس|تاس \d+|بولینگ|تنظیم عکس|حذف عکس|پنل|panel)$"
-
 # Self Bot States
 ACTIVE_ENEMIES = {}
-ENEMY_REPLY_QUEUES = {}
-SECRETARY_MODE_STATUS = {}
-USERS_REPLIED_IN_SECRETARY = {}
-MUTED_USERS = {}
 USER_FONT_CHOICES = {}
 CLOCK_STATUS = {}
-BOLD_MODE_STATUS = {}
+SECRETARY_MODE_STATUS = {}
 AUTO_SEEN_STATUS = {}
-AUTO_REACTION_TARGETS = {}
-AUTO_TRANSLATE_TARGET = {}
-ANTI_LOGIN_STATUS = {}
-COPY_MODE_STATUS = {}
-ORIGINAL_PROFILE_DATA = {}
-GLOBAL_ENEMY_STATUS = {}
-TYPING_MODE_STATUS = {}
-PLAYING_MODE_STATUS = {}
-PV_LOCK_STATUS = {}
+
+# Session State
+if 'bot_running' not in st.session_state:
+    st.session_state.bot_running = False
+if 'bot_app' not in st.session_state:
+    st.session_state.bot_app = None
+if 'start_time' not in st.session_state:
+    st.session_state.start_time = None
 
 # =======================================================
-#  HTML Template برای پنل وب
-# =======================================================
-
-HTML_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="fa" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🤖 پنل کنترل ربات</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 20px;
-        }
-        .container {
-            background: white;
-            border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            padding: 40px;
-            max-width: 500px;
-            width: 100%;
-            animation: fadeIn 0.5s ease-in;
-        }
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(-20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        .header {
-            text-align: center;
-            margin-bottom: 30px;
-        }
-        .header h1 {
-            color: #333;
-            font-size: 28px;
-            margin-bottom: 10px;
-        }
-        .header .emoji {
-            font-size: 60px;
-            animation: bounce 2s infinite;
-        }
-        @keyframes bounce {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-10px); }
-        }
-        .status-card {
-            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-            border-radius: 15px;
-            padding: 25px;
-            margin-bottom: 25px;
-            text-align: center;
-        }
-        .status-indicator {
-            width: 20px;
-            height: 20px;
-            border-radius: 50%;
-            display: inline-block;
-            margin-left: 10px;
-            animation: pulse 2s infinite;
-        }
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-        .status-indicator.online {
-            background-color: #10b981;
-            box-shadow: 0 0 10px #10b981;
-        }
-        .status-indicator.offline {
-            background-color: #ef4444;
-            box-shadow: 0 0 10px #ef4444;
-        }
-        .status-text {
-            font-size: 24px;
-            font-weight: bold;
-            color: #333;
-            margin: 10px 0;
-        }
-        .stats {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 15px;
-            margin-top: 15px;
-        }
-        .stat-item {
-            background: white;
-            padding: 15px;
-            border-radius: 10px;
-            text-align: center;
-        }
-        .stat-label {
-            font-size: 12px;
-            color: #666;
-            margin-bottom: 5px;
-        }
-        .stat-value {
-            font-size: 20px;
-            font-weight: bold;
-            color: #667eea;
-        }
-        .button-group {
-            display: flex;
-            gap: 15px;
-            margin-bottom: 20px;
-        }
-        button {
-            flex: 1;
-            padding: 15px 25px;
-            border: none;
-            border-radius: 10px;
-            font-size: 16px;
-            font-weight: bold;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            color: white;
-            position: relative;
-            overflow: hidden;
-        }
-        button:before {
-            content: '';
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            width: 0;
-            height: 0;
-            border-radius: 50%;
-            background: rgba(255, 255, 255, 0.3);
-            transform: translate(-50%, -50%);
-            transition: width 0.6s, height 0.6s;
-        }
-        button:active:before {
-            width: 300px;
-            height: 300px;
-        }
-        .btn-start {
-            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-        }
-        .btn-start:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(16, 185, 129, 0.4);
-        }
-        .btn-stop {
-            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-        }
-        .btn-stop:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(239, 68, 68, 0.4);
-        }
-        button:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-        }
-        .message {
-            padding: 15px;
-            border-radius: 10px;
-            margin-top: 20px;
-            text-align: center;
-            display: none;
-            animation: slideIn 0.3s ease;
-        }
-        @keyframes slideIn {
-            from { opacity: 0; transform: translateY(-10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        .message.success {
-            background-color: #d1fae5;
-            color: #065f46;
-            border: 2px solid #10b981;
-        }
-        .message.error {
-            background-color: #fee2e2;
-            color: #991b1b;
-            border: 2px solid #ef4444;
-        }
-        .loading {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 3px solid rgba(255, 255, 255, 0.3);
-            border-radius: 50%;
-            border-top-color: white;
-            animation: spin 1s linear infinite;
-        }
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-        .footer {
-            text-align: center;
-            margin-top: 30px;
-            color: #666;
-            font-size: 14px;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <div class="emoji">🤖</div>
-            <h1>پنل کنترل ربات تلگرام</h1>
-        </div>
-
-        <div class="status-card">
-            <div>
-                <span class="status-indicator" id="statusIndicator"></span>
-                <span class="status-text" id="statusText">در حال بارگذاری...</span>
-            </div>
-            
-            <div class="stats">
-                <div class="stat-item">
-                    <div class="stat-label">کاربران</div>
-                    <div class="stat-value" id="totalUsers">0</div>
-                </div>
-                <div class="stat-item">
-                    <div class="stat-label">سلف‌های فعال</div>
-                    <div class="stat-value" id="activeBots">0</div>
-                </div>
-                <div class="stat-item">
-                    <div class="stat-label">تراکنش‌های معلق</div>
-                    <div class="stat-value" id="pendingTx">0</div>
-                </div>
-                <div class="stat-item">
-                    <div class="stat-label">زمان اجرا</div>
-                    <div class="stat-value" id="uptime">--</div>
-                </div>
-            </div>
-        </div>
-
-        <div class="button-group">
-            <button class="btn-start" id="btnStart" onclick="startBot()">
-                ▶️ روشن کردن
-            </button>
-            <button class="btn-stop" id="btnStop" onclick="stopBot()">
-                ⏹️ خاموش کردن
-            </button>
-        </div>
-
-        <div class="message" id="message"></div>
-
-        <div class="footer">
-            Made with ❤️ | Auto-refresh: 3s
-        </div>
-    </div>
-
-    <script>
-        let startTime = null;
-
-        async function getStatus() {
-            try {
-                const response = await fetch('/api/status');
-                const data = await response.json();
-                updateUI(data);
-            } catch (error) {
-                console.error('خطا در دریافت وضعیت:', error);
-            }
-        }
-
-        function formatUptime(seconds) {
-            if (!seconds) return '--';
-            const hours = Math.floor(seconds / 3600);
-            const minutes = Math.floor((seconds % 3600) / 60);
-            const secs = seconds % 60;
-            
-            if (hours > 0) return `${hours}h ${minutes}m`;
-            if (minutes > 0) return `${minutes}m ${secs}s`;
-            return `${secs}s`;
-        }
-
-        function updateUI(status) {
-            const indicator = document.getElementById('statusIndicator');
-            const statusText = document.getElementById('statusText');
-            const btnStart = document.getElementById('btnStart');
-            const btnStop = document.getElementById('btnStop');
-            
-            document.getElementById('totalUsers').textContent = status.total_users || 0;
-            document.getElementById('activeBots').textContent = status.active_bots || 0;
-            document.getElementById('pendingTx').textContent = status.pending_tx || 0;
-
-            if (status.running) {
-                indicator.className = 'status-indicator online';
-                statusText.textContent = '🟢 ربات در حال اجرا';
-                btnStart.disabled = true;
-                btnStop.disabled = false;
-                
-                if (!startTime) startTime = Date.now();
-                const uptime = Math.floor((Date.now() - startTime) / 1000);
-                document.getElementById('uptime').textContent = formatUptime(uptime);
-            } else {
-                indicator.className = 'status-indicator offline';
-                statusText.textContent = '🔴 ربات خاموش است';
-                btnStart.disabled = false;
-                btnStop.disabled = true;
-                startTime = null;
-                document.getElementById('uptime').textContent = '--';
-            }
-        }
-
-        function showMessage(text, type) {
-            const messageEl = document.getElementById('message');
-            messageEl.textContent = text;
-            messageEl.className = `message ${type}`;
-            messageEl.style.display = 'block';
-            setTimeout(() => {
-                messageEl.style.display = 'none';
-            }, 5000);
-        }
-
-        async function startBot() {
-            const btn = document.getElementById('btnStart');
-            const originalText = btn.innerHTML;
-            btn.innerHTML = '<span class="loading"></span> در حال روشن کردن...';
-            btn.disabled = true;
-
-            try {
-                const response = await fetch('/api/start', { method: 'POST' });
-                const data = await response.json();
-                showMessage(data.message, data.success ? 'success' : 'error');
-                setTimeout(getStatus, 1000);
-            } catch (error) {
-                showMessage('❌ خطا در ارتباط با سرور', 'error');
-            }
-
-            btn.innerHTML = originalText;
-        }
-
-        async function stopBot() {
-            const btn = document.getElementById('btnStop');
-            const originalText = btn.innerHTML;
-            btn.innerHTML = '<span class="loading"></span> در حال خاموش کردن...';
-            btn.disabled = true;
-
-            try {
-                const response = await fetch('/api/stop', { method: 'POST' });
-                const data = await response.json();
-                showMessage(data.message, data.success ? 'success' : 'error');
-                setTimeout(getStatus, 1000);
-            } catch (error) {
-                showMessage('❌ خطا در ارتباط با سرور', 'error');
-            }
-
-            btn.innerHTML = originalText;
-        }
-
-        getStatus();
-        setInterval(getStatus, 3000);
-    </script>
-</body>
-</html>
-"""
-
-# =======================================================
-#  بخش دیتابیس
+#  دیتابیس
 # =======================================================
 
 def get_db_connection():
-    conn = sqlite3.connect(DB_NAME)
+    conn = sqlite3.connect(DB_NAME, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -626,7 +284,7 @@ async def get_user_async(user_id):
     return new_u
 
 # =======================================================
-#  توابع کمکی (فقط ضروری‌ترین‌ها)
+#  توابع کمکی
 # =======================================================
 
 def get_user_display_name(user):
@@ -645,131 +303,484 @@ def get_main_keyboard(user_doc):
             [KeyboardButton("🤖 فعال‌سازی سلف")]
         ], resize_keyboard=True)
 
+admin_keyboard = ReplyKeyboardMarkup([
+    [KeyboardButton("📊 آمار کلی"), KeyboardButton("💳 تنظیم شماره کارت")],
+    [KeyboardButton("👤 تنظیم صاحب کارت"), KeyboardButton("📈 تنظیم قیمت الماس")],
+    [KeyboardButton("➕ افزایش الماس کاربر"), KeyboardButton("➖ کسر الماس کاربر")],
+    [KeyboardButton("⬅️ بازگشت به منوی اصلی")]
+], resize_keyboard=True)
+
 # =======================================================
-#  Handler های ربات (ساده‌شده)
+#  Handler های ربات (کامل)
 # =======================================================
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_doc = await get_user_async(update.effective_user.id)
     await update.message.reply_text(
-        f"سلام {get_user_display_name(update.effective_user)} عزیز!\n\n🤖 ربات سلف من آماده کار هستم!",
+        f"سلام {get_user_display_name(update.effective_user)} عزیز!\n\n✨ خوش اومدی به ربات سلف من!",
         reply_markup=get_main_keyboard(user_doc)
     )
 
 async def show_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_doc = await get_user_async(update.effective_user.id)
-    await update.message.reply_text(f"💰 موجودی شما: {user_doc['balance']} الماس")
+    await update.message.reply_text(f"💰 موجودی شما: **{user_doc['balance']}** الماس", parse_mode=ParseMode.MARKDOWN)
+
+async def get_referral_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    bot_name = context.bot.username
+    link = f"https://t.me/{bot_name}?start={user_id}"
+    await update.message.reply_text(f"🎁 لینک دعوت شما:\n{link}\n\nبا دعوت هر نفر الماس رایگان بگیرید!")
 
 async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_doc = await get_user_async(update.effective_user.id)
     await update.message.reply_text("❌ عملیات لغو شد.", reply_markup=get_main_keyboard(user_doc))
     return ConversationHandler.END
 
-# =======================================================
-#  Flask Web Panel
-# =======================================================
+# Admin Handlers
+async def admin_panel_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_doc = await get_user_async(update.effective_user.id)
+    if not user_doc.get('is_owner'):
+        await update.message.reply_text("⛔️ دسترسی محدود!")
+        return ConversationHandler.END
+    await update.message.reply_text("👑 پنل ادمین:", reply_markup=admin_keyboard)
+    return ADMIN_MENU
 
-web_app = Flask(__name__)
-bot_running = False
-
-@web_app.route('/')
-def index():
-    return render_template_string(HTML_TEMPLATE)
-
-@web_app.route('/api/status')
-def api_status():
-    return jsonify({
-        'running': bot_running,
-        'total_users': len(GLOBAL_USERS),
-        'active_bots': len(ACTIVE_BOTS),
-        'pending_tx': sum(1 for tx in GLOBAL_TRANSACTIONS.values() if tx.get('status') == 'pending')
-    })
-
-@web_app.route('/api/start', methods=['POST'])
-def api_start():
-    global bot_running, telegram_app
+async def process_admin_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    choice = update.message.text
     
-    if bot_running:
-        return jsonify({'success': False, 'message': '⚠️ ربات از قبل در حال اجرا است!'})
+    if choice == "📊 آمار کلی":
+        total_users = len(GLOBAL_USERS)
+        pending_tx = sum(1 for tx in GLOBAL_TRANSACTIONS.values() if tx.get('status') == 'pending')
+        await update.message.reply_text(
+            f"📊 **آمار کلی:**\n\n"
+            f"👥 کاربران: {total_users}\n"
+            f"🧾 تراکنش‌های معلق: {pending_tx}\n"
+            f"🤖 سلف‌های فعال: {len(ACTIVE_BOTS)}",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=admin_keyboard
+        )
+        return ADMIN_MENU
+    
+    elif choice == "⬅️ بازگشت به منوی اصلی":
+        user_doc = await get_user_async(update.effective_user.id)
+        await update.message.reply_text("منوی اصلی:", reply_markup=get_main_keyboard(user_doc))
+        return ConversationHandler.END
+    
+    return ADMIN_MENU
+
+# Deposit Handlers
+async def deposit_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("لطفا تعداد الماسی که می‌خواهید بخرید را وارد کنید:", reply_markup=ReplyKeyboardRemove())
+    return AWAIT_DEPOSIT_AMOUNT
+
+async def process_deposit_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        amount = int(update.message.text)
+        if amount <= 0: raise ValueError
+        
+        price = int(GLOBAL_SETTINGS.get('credit_price', '1000'))
+        total_cost = amount * price
+        context.user_data['deposit_amount'] = amount
+        
+        card_number = GLOBAL_SETTINGS.get('card_number', 'تنظیم نشده')
+        card_holder = GLOBAL_SETTINGS.get('card_holder', 'تنظیم نشده')
+        
+        await update.message.reply_text(
+            f"💳 **اطلاعات پرداخت:**\n\n"
+            f"💰 مبلغ: {total_cost:,} تومان\n"
+            f"💎 الماس: {amount}\n\n"
+            f"📌 شماره کارت: `{card_number}`\n"
+            f"👤 صاحب حساب: {card_holder}\n\n"
+            f"لطفا رسید پرداخت را ارسال کنید:",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return AWAIT_DEPOSIT_RECEIPT
+    except:
+        await update.message.reply_text("❌ لطفا یک عدد صحیح وارد کنید.")
+        return AWAIT_DEPOSIT_AMOUNT
+
+async def process_deposit_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global TX_ID_COUNTER
+    if not update.message.photo:
+        await update.message.reply_text("❌ لطفا عکس رسید را ارسال کنید.")
+        return AWAIT_DEPOSIT_RECEIPT
+    
+    user = update.effective_user
+    amount = context.user_data['deposit_amount']
+    receipt_file_id = update.message.photo[-1].file_id
+    tx_id = TX_ID_COUNTER
+    
+    GLOBAL_TRANSACTIONS[tx_id] = {
+        'tx_id': tx_id,
+        'user_id': user.id,
+        'amount': amount,
+        'receipt_file_id': receipt_file_id,
+        'status': 'pending',
+        'type': 'diamond',
+        'timestamp': datetime.now(timezone.utc).isoformat()
+    }
+    TX_ID_COUNTER += 1
+    
+    conn = get_db_connection()
+    conn.execute('INSERT OR REPLACE INTO transactions (tx_id, data) VALUES (?, ?)', (tx_id, json.dumps(GLOBAL_TRANSACTIONS[tx_id])))
+    conn.commit()
+    conn.close()
+    
+    # ارسال به ادمین
+    try:
+        caption = f"🧾 **درخواست شارژ جدید**\n\nکاربر: {user.mention_html()}\nID: `{user.id}`\nالماس: {amount}"
+        reply_markup = InlineKeyboardMarkup([[
+            InlineKeyboardButton("✅ تایید", callback_data=f"tx_approve_{tx_id}"),
+            InlineKeyboardButton("❌ رد", callback_data=f"tx_reject_{tx_id}")
+        ]])
+        await context.bot.send_photo(
+            chat_id=OWNER_ID,
+            photo=receipt_file_id,
+            caption=caption,
+            reply_markup=reply_markup,
+            parse_mode=ParseMode.HTML
+        )
+    except Exception as e:
+        logging.warning(f"Could not send to owner: {e}")
+    
+    user_doc = await get_user_async(user.id)
+    await update.message.reply_text("✅ رسید شما ارسال شد. پس از تایید، الماس شما شارژ می‌شود.", reply_markup=get_main_keyboard(user_doc))
+    return ConversationHandler.END
+
+# Support Handlers
+async def support_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("لطفا پیام خود را برای پشتیبانی بنویسید:", reply_markup=ReplyKeyboardRemove())
+    return AWAIT_SUPPORT_MESSAGE
+
+async def process_support_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    user_doc = await get_user_async(user.id)
+    text = f"📨 **پیام پشتیبانی**\n\nکاربر: {user.mention_html()}\nID: `{user.id}`\n\n{update.message.text}"
     
     try:
-        # شروع ربات در thread جدید
-        def run_bot():
-            global bot_running, telegram_app
-            
-            from telegram.request import HTTPXRequest
-            request = HTTPXRequest(connection_pool_size=8)
-            
-            telegram_app = Application.builder() \
-                .token(BOT_TOKEN) \
-                .request(request) \
-                .build()
-            
-            # اضافه کردن handler ها
-            telegram_app.add_handler(CommandHandler("start", start_command))
-            telegram_app.add_handler(MessageHandler(filters.Regex("^💰 موجودی$"), show_balance))
-            
-            bot_running = True
-            logging.info("✅ ربات روشن شد!")
-            
-            telegram_app.run_polling(
-                allowed_updates=Update.ALL_TYPES,
-                drop_pending_updates=True
-            )
+        await context.bot.send_message(chat_id=OWNER_ID, text=text, parse_mode=ParseMode.HTML)
+    except Exception as e:
+        logging.warning(f"Could not send support message: {e}")
+    
+    await update.message.reply_text("✅ پیام شما ارسال شد.", reply_markup=get_main_keyboard(user_doc))
+    return ConversationHandler.END
+
+# Callback Handler
+async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    
+    if data.startswith("tx_"):
+        parts = data.split('_')
+        action = parts[1]
+        tx_id = int(parts[2])
+        tx = GLOBAL_TRANSACTIONS.get(tx_id)
         
-        bot_thread = Thread(target=run_bot, daemon=True)
+        if not tx:
+            await query.answer("تراکنش یافت نشد!", show_alert=True)
+            return
+        
+        if tx['status'] != 'pending':
+            await query.answer("قبلاً پردازش شده!", show_alert=True)
+            return
+        
+        if action == "approve":
+            tx['status'] = 'approved'
+            u_doc = await get_user_async(tx['user_id'])
+            u_doc['balance'] += tx['amount']
+            save_user_immediate(tx['user_id'])
+            
+            conn = get_db_connection()
+            conn.execute('INSERT OR REPLACE INTO transactions (tx_id, data) VALUES (?, ?)', (tx_id, json.dumps(tx)))
+            conn.commit()
+            conn.close()
+            
+            await context.bot.send_message(tx['user_id'], f"✅ شارژ {tx['amount']} الماس انجام شد!")
+            await query.edit_message_caption(caption=query.message.caption + "\n\n✅ تایید شد")
+        
+        elif action == "reject":
+            tx['status'] = 'rejected'
+            conn = get_db_connection()
+            conn.execute('INSERT OR REPLACE INTO transactions (tx_id, data) VALUES (?, ?)', (tx_id, json.dumps(tx)))
+            conn.commit()
+            conn.close()
+            
+            await context.bot.send_message(tx['user_id'], "❌ درخواست شارژ رد شد.")
+            await query.edit_message_caption(caption=query.message.caption + "\n\n❌ رد شد")
+
+# =======================================================
+#  کنترل ربات از Streamlit
+# =======================================================
+
+def run_telegram_bot():
+    """اجرای ربات تلگرام"""
+    try:
+        request = HTTPXRequest(connection_pool_size=8)
+        
+        app = Application.builder() \
+            .token(BOT_TOKEN) \
+            .request(request) \
+            .build()
+        
+        # Handler ها
+        app.add_handler(CommandHandler("start", start_command))
+        app.add_handler(MessageHandler(filters.Regex("^💰 موجودی$"), show_balance))
+        app.add_handler(MessageHandler(filters.Regex("^🎁 الماس رایگان$"), get_referral_link))
+        
+        # Deposit Conversation
+        deposit_conv = ConversationHandler(
+            entry_points=[MessageHandler(filters.Regex("^💳 افزایش الماس$"), deposit_entry)],
+            states={
+                AWAIT_DEPOSIT_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_deposit_amount)],
+                AWAIT_DEPOSIT_RECEIPT: [MessageHandler(filters.PHOTO, process_deposit_receipt)]
+            },
+            fallbacks=[CommandHandler('cancel', cancel_conversation)],
+            allow_reentry=True
+        )
+        app.add_handler(deposit_conv)
+        
+        # Support Conversation
+        support_conv = ConversationHandler(
+            entry_points=[MessageHandler(filters.Regex("^💬 پشتیبانی$"), support_entry)],
+            states={
+                AWAIT_SUPPORT_MESSAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_support_message)]
+            },
+            fallbacks=[CommandHandler('cancel', cancel_conversation)],
+            allow_reentry=True
+        )
+        app.add_handler(support_conv)
+        
+        # Admin Panel
+        admin_conv = ConversationHandler(
+            entry_points=[MessageHandler(filters.Regex("^👑 پنل ادمین$"), admin_panel_entry)],
+            states={
+                ADMIN_MENU: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_admin_choice)],
+            },
+            fallbacks=[CommandHandler('cancel', cancel_conversation)],
+            allow_reentry=True
+        )
+        app.add_handler(admin_conv)
+        
+        # Callback Handler
+        app.add_handler(CallbackQueryHandler(callback_query_handler))
+        
+        st.session_state.bot_app = app
+        
+        logging.info("✅ ربات شروع به کار کرد!")
+        
+        # اجرای polling
+        app.run_polling(
+            allowed_updates=Update.ALL_TYPES,
+            drop_pending_updates=True
+        )
+        
+    except Exception as e:
+        logging.error(f"❌ خطا در اجرای ربات: {e}")
+        st.session_state.bot_running = False
+
+def start_bot():
+    """شروع ربات"""
+    if st.session_state.bot_running:
+        return False, "⚠️ ربات از قبل در حال اجرا است!"
+    
+    try:
+        bot_thread = Thread(target=run_telegram_bot, daemon=True)
         bot_thread.start()
         
-        time.sleep(2)  # صبر برای اطمینان از شروع
-        return jsonify({'success': True, 'message': '✅ ربات با موفقیت روشن شد!'})
+        st.session_state.bot_running = True
+        st.session_state.start_time = time.time()
+        
+        time.sleep(2)
+        return True, "✅ ربات با موفقیت روشن شد!"
         
     except Exception as e:
-        logging.error(f"خطا در روشن کردن ربات: {e}")
-        return jsonify({'success': False, 'message': f'❌ خطا: {str(e)}'})
+        return False, f"❌ خطا: {str(e)}"
 
-@web_app.route('/api/stop', methods=['POST'])
-async def api_stop():
-    global bot_running, telegram_app
-    
-    if not bot_running:
-        return jsonify({'success': False, 'message': '⚠️ ربات از قبل خاموش است!'})
+async def stop_bot():
+    """خاموش کردن ربات"""
+    if not st.session_state.bot_running:
+        return False, "⚠️ ربات از قبل خاموش است!"
     
     try:
-        if telegram_app:
-            await telegram_app.stop()
-            await telegram_app.shutdown()
+        if st.session_state.bot_app:
+            await st.session_state.bot_app.stop()
+            await st.session_state.bot_app.shutdown()
         
-        bot_running = False
-        telegram_app = None
+        st.session_state.bot_running = False
+        st.session_state.bot_app = None
+        st.session_state.start_time = None
         
-        logging.info("🔴 ربات خاموش شد!")
-        return jsonify({'success': True, 'message': '✅ ربات با موفقیت خاموش شد!'})
+        return True, "✅ ربات خاموش شد!"
         
     except Exception as e:
-        logging.error(f"خطا در خاموش کردن ربات: {e}")
-        return jsonify({'success': False, 'message': f'❌ خطا: {str(e)}'})
+        return False, f"❌ خطا: {str(e)}"
 
 # =======================================================
-#  Main Function
+#  UI اصلی
 # =======================================================
+
+def format_uptime(seconds):
+    if not seconds:
+        return "0s"
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    if hours > 0:
+        return f"{hours}h {minutes}m"
+    elif minutes > 0:
+        return f"{minutes}m {secs}s"
+    return f"{secs}s"
 
 def main():
-    print("""
-╔═══════════════════════════════════════════╗
-║     🤖 ربات سلف من + پنل وب              ║
-║     📡 در حال راه‌اندازی...              ║
-╚═══════════════════════════════════════════╝
-    """)
-    
-    # راه‌اندازی دیتابیس
     init_db()
     
-    # راه‌اندازی وب سرور
-    print("🌐 پنل وب در حال اجرا...")
-    print("📍 آدرس: http://localhost:5000")
-    print("━" * 47)
+    # Sidebar
+    with st.sidebar:
+        st.title("⚙️ تنظیمات")
+        
+        st.markdown("### 🔧 پیکربندی")
+        new_price = st.number_input("قیمت الماس (تومان)", value=int(GLOBAL_SETTINGS.get('credit_price', '1000')), step=100)
+        if st.button("💾 ذخیره قیمت"):
+            asyncio.run(set_setting_async('credit_price', new_price))
+            st.success("✅ ذخیره شد!")
+        
+        st.markdown("---")
+        st.markdown("### 📊 آمار سریع")
+        st.metric("👥 کاربران", len(GLOBAL_USERS))
+        st.metric("🤖 سلف فعال", len(ACTIVE_BOTS))
+        st.metric("🧾 تراکنش معلق", sum(1 for tx in GLOBAL_TRANSACTIONS.values() if tx.get('status') == 'pending'))
     
-    web_app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
+    # Main Panel
+    st.markdown("""
+    <div style='text-align: center; background: white; padding: 30px; border-radius: 20px; margin-bottom: 20px;'>
+        <h1 style='font-size: 50px; margin: 0;'>🤖</h1>
+        <h2 style='color: #333;'>ربات سلف من - پنل کنترل</h2>
+        <p style='color: #666;'>مدیریت کامل ربات تلگرام شما</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # وضعیت
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        status_emoji = "🟢" if st.session_state.bot_running else "🔴"
+        status_text = "در حال اجرا" if st.session_state.bot_running else "خاموش"
+        st.markdown(f"""
+        <div class='metric-card'>
+            <h3>{status_emoji} وضعیت ربات</h3>
+            <p style='font-size: 20px; font-weight: bold; color: {"#10b981" if st.session_state.bot_running else "#ef4444"};'>{status_text}</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        uptime = format_uptime(time.time() - st.session_state.start_time) if st.session_state.start_time else "0s"
+        st.markdown(f"""
+        <div class='metric-card'>
+            <h3>⏱️ زمان اجرا</h3>
+            <p style='font-size: 20px; font-weight: bold; color: #667eea;'>{uptime}</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown(f"""
+        <div class='metric-card'>
+            <h3>💰 قیمت الماس</h3>
+            <p style='font-size: 20px; font-weight: bold; color: #f59e0b;'>{GLOBAL_SETTINGS.get('credit_price', '1000')} تومان</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # کنترل‌ها
+    col1, col2, col3 = st.columns([2, 2, 1])
+    
+    with col1:
+        if st.button("▶️ روشن کردن ربات", disabled=st.session_state.bot_running, use_container_width=True, type="primary"):
+            with st.spinner("در حال روشن کردن..."):
+                success, message = start_bot()
+                if success:
+                    st.success(message)
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error(message)
+    
+    with col2:
+        if st.button("⏹️ خاموش کردن ربات", disabled=not st.session_state.bot_running, use_container_width=True):
+            with st.spinner("در حال خاموش کردن..."):
+                success, message = asyncio.run(stop_bot())
+                if success:
+                    st.success(message)
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error(message)
+    
+    with col3:
+        if st.button("🔄 Refresh", use_container_width=True):
+            st.rerun()
+    
+    # جداول داده
+    st.markdown("---")
+    
+    tab1, tab2, tab3 = st.tabs(["👥 کاربران", "🧾 تراکنش‌ها", "📊 آمار تفصیلی"])
+    
+    with tab1:
+        if GLOBAL_USERS:
+            st.markdown("### 👥 لیست کاربران")
+            users_data = []
+            for uid, udata in GLOBAL_USERS.items():
+                users_data.append({
+                    "ID": uid,
+                    "نام": udata.get('first_name', 'N/A'),
+                    "موجودی": udata.get('balance', 0),
+                    "ادمین": "✅" if udata.get('is_admin') else "❌"
+                })
+            st.dataframe(users_data, use_container_width=True)
+        else:
+            st.info("هنوز کاربری ثبت نشده")
+    
+    with tab2:
+        if GLOBAL_TRANSACTIONS:
+            st.markdown("### 🧾 تراکنش‌های اخیر")
+            tx_data = []
+            for tx_id, tx in list(GLOBAL_TRANSACTIONS.items())[-10:]:
+                tx_data.append({
+                    "ID": tx_id,
+                    "کاربر": tx.get('user_id'),
+                    "مقدار": tx.get('amount'),
+                    "وضعیت": tx.get('status'),
+                    "زمان": tx.get('timestamp', 'N/A')[:19]
+                })
+            st.dataframe(tx_data, use_container_width=True)
+        else:
+            st.info("هنوز تراکنشی ثبت نشده")
+    
+    with tab3:
+        st.markdown("### 📊 آمار کلی")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("مجموع الماس در سیستم", sum(u.get('balance', 0) for u in GLOBAL_USERS.values()))
+            st.metric("تراکنش‌های تایید شده", sum(1 for tx in GLOBAL_TRANSACTIONS.values() if tx.get('status') == 'approved'))
+        
+        with col2:
+            st.metric("تراکنش‌های رد شده", sum(1 for tx in GLOBAL_TRANSACTIONS.values() if tx.get('status') == 'rejected'))
+            st.metric("کانال‌های عضویت اجباری", len(GLOBAL_CHANNELS))
+    
+    # Footer
+    st.markdown("---")
+    st.markdown("""
+    <div style='text-align: center; color: white; padding: 20px;'>
+        <p>ساخته شده با ❤️ | Auto-refresh: 5s</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Auto-refresh
+    if st.session_state.bot_running:
+        time.sleep(5)
+        st.rerun()
 
 if __name__ == "__main__":
     main()
