@@ -1468,7 +1468,6 @@ def main():
     application = Application.builder() \
         .token(BOT_TOKEN) \
         .request(request) \
-        .job_queue(JobQueue()) \
         .post_init(post_init) \
         .build()
 
@@ -1479,7 +1478,7 @@ def main():
     application.add_handler(MessageHandler(filters.Regex("^💰 موجودی$"), show_balance))
     application.add_handler(MessageHandler(filters.Regex("^🎁 الماس رایگان$"), get_referral_link))
     application.add_handler(MessageHandler(filters.Regex("^🔄 تمدید و ادامه سرویس$"), continue_service_handler))
-
+    
     self_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^🤖 فعال‌سازی سلف$"), self_bot_activation_entry)],
         states={
