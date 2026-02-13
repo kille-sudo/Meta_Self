@@ -33,7 +33,9 @@ from telegram import (Update, ReplyKeyboardMarkup, KeyboardButton,
 from telegram.constants import ParseMode, ChatAction as PTBChatAction
 from telegram.ext import (Application, CommandHandler, MessageHandler,
                           ConversationHandler, filters, ContextTypes, CallbackQueryHandler,
-                          ApplicationHandlerStop, TypeHandler, InlineQueryHandler)
+                          ApplicationHandlerStop, TypeHandler, InlineQueryHandler,
+                          JobQueue)  # JobQueue اضافه شد
+from telegram.request import HTTPXRequest  # این خط اضافه شد
 import telegram.error
 
 # --- Pyrogram Imports (Self Bot) ---
@@ -70,10 +72,10 @@ def patch_peer_id_validation():
 patch_peer_id_validation()
 
 # --- Environment Variables (SECURE) ---
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8481431417:AAEB4dNawnyCQBH8KHtkKaFaQu_AcbmlHu0")
-API_ID = int(os.getenv("API_ID", "9536480"))
-API_HASH = os.getenv("API_HASH", "4e52f6f12c47a0da918009260b6e3d44")
-OWNER_ID = int(os.getenv("OWNER_ID", "5789565027"))
+BOT_TOKEN = ("8481431417:AAEB4dNawnyCQBH8KHtkKaFaQu_AcbmlHu0")
+API_ID = ("9536480")
+API_HASH = ("4e52f6f12c47a0da918009260b6e3d44")
+OWNER_ID = ("5789565027")
 TEHRAN_TIMEZONE = ZoneInfo("Asia/Tehran")
 
 # --- SQLite Database Configuration ---
@@ -118,9 +120,9 @@ FONT_STYLES = {
     "monospace":    {'0':'𝟶','1':'𝟷','2':'𝟸','3':'𝟹','4':'𝟺','5':'𝟻','6':'𝟼','7':'𝟽','8':'𝟾','9':'𝟿',':':':'},
     "normal":       {'0':'0','1':'1','2':'2','3':'3','4':'4','5':'5','6':'6','7':'7','8':'8','9':'9',':':':'},
     "circled":      {'0':'⓪','1':'①','2':'②','3':'③','4':'④','5':'⑤','6':'⑥','7':'⑦','8':'⑧','9':'⑨',':':'∶'},
-    "fullwidth":    {'0':'０','1':'１','2':'２','3':'３','4':'４','5':'５','6':'６','7':'７','8':'۸','9':'۹',':':'：'},
+    "fullwidth":    {'0':'０','1':'１','2':'２','3':'３','4':'４','5':'５','6':'６','7':'７','8':'８','9':'９',':':'：'},
     "filled":       {'0':'⓿','1':'❶','2':'❷','3':'❸','4':'❹','5':'❺','6':'❻','7':'❼','8':'❽','9':'❾',':':':'},
-    "sans":         {'0':'𝟢','1':'𝟣','2':'𝟤','3':'𝟥','4':'𝟦','5':'𝟧','6':'𝟨','7':'𝟩','8':'𝟪','9':'𝟫',':':':'},
+    "sans":         {'0':'𝟢','1':'𝟣','2':'𝟤','3':'𝟥','4':'𝟤','5':'𝟧','6':'𝟨','7':'𝟩','8':'𝟪','9':'𝟫',':':':'},
     "inverted":     {'0':'0','1':'Ɩ','2':'ᄅ','3':'Ɛ','4':'ㄣ','5':'ϛ','6':'9','7':'ㄥ','8':'8','9':'6',':':':'},
 }
 FONT_KEYS_ORDER = ["cursive", "stylized", "doublestruck", "monospace", "normal", "circled", "fullwidth", "filled", "sans", "inverted"]
@@ -1462,24 +1464,21 @@ async def post_init(application: Application):
         application.job_queue.run_repeating(billing_job, interval=60, first=10)
 
 def main():
-    from telegram.request import HTTPXRequest
     request = HTTPXRequest(connection_pool_size=8)
-    application = (Application.builder().token(BOT_TOKEN).request(request).post_init(post_init).build())
     application = Application.builder() \
-    .token(BOT_TOKEN) \
-    .request(request) \
-    .post_init(post_init) \
-    .build()
-    # Forced Join Middleware
+        .token(BOT_TOKEN) \
+        .request(request) \
+        .job_queue(JobQueue()) \
+        .post_init(post_init) \
+        .build()
+
+    # Forced Join Middleware - فقط یک بار اضافه شود
     application.add_handler(TypeHandler(Update, membership_check_handler), group=-1)
 
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(MessageHandler(filters.Regex("^💰 موجودی$"), show_balance))
     application.add_handler(MessageHandler(filters.Regex("^🎁 الماس رایگان$"), get_referral_link))
     application.add_handler(MessageHandler(filters.Regex("^🔄 تمدید و ادامه سرویس$"), continue_service_handler))
-    application.add_handler(TypeHandler(Update, membership_check_handler), group=-1)
-    application.add_handler(CommandHandler("start", start_command))
-
 
     self_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^🤖 فعال‌سازی سلف$"), self_bot_activation_entry)],
