@@ -33,9 +33,7 @@ from telegram import (Update, ReplyKeyboardMarkup, KeyboardButton,
 from telegram.constants import ParseMode, ChatAction as PTBChatAction
 from telegram.ext import (Application, CommandHandler, MessageHandler,
                           ConversationHandler, filters, ContextTypes, CallbackQueryHandler,
-                          ApplicationHandlerStop, TypeHandler, InlineQueryHandler,
-                          JobQueue)  # JobQueue اضافه شد
-from telegram.request import HTTPXRequest  # این خط اضافه شد
+                          ApplicationHandlerStop, TypeHandler, InlineQueryHandler)
 import telegram.error
 
 # --- Pyrogram Imports (Self Bot) ---
@@ -71,11 +69,11 @@ def patch_peer_id_validation():
 
 patch_peer_id_validation()
 
-# --- Environment Variables (SECURE) --
-BOT_TOKEN = "8230272382:AAFkPmzMn30b462DJYCP7gAnCdPOMQsCduA"
-API_ID = 9536480
-API_HASH = "4e52f6f12c47a0da918009260b6e3d44"
-OWNER_ID = "5789565027"
+# --- Environment Variables (SECURE) ---
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8230272382:AAFkPmzMn30b462DJYCP7gAnCdPOMQsCduA")
+API_ID = os.getenv("API_ID", "9536480")
+API_HASH = os.getenv("API_HASH", "4e52f6f12c47a0da918009260b6e3d44")
+OWNER_ID = int(os.getenv("OWNER_ID", "5789565027"))
 TEHRAN_TIMEZONE = ZoneInfo("Asia/Tehran")
 
 # --- SQLite Database Configuration ---
@@ -120,9 +118,9 @@ FONT_STYLES = {
     "monospace":    {'0':'𝟶','1':'𝟷','2':'𝟸','3':'𝟹','4':'𝟺','5':'𝟻','6':'𝟼','7':'𝟽','8':'𝟾','9':'𝟿',':':':'},
     "normal":       {'0':'0','1':'1','2':'2','3':'3','4':'4','5':'5','6':'6','7':'7','8':'8','9':'9',':':':'},
     "circled":      {'0':'⓪','1':'①','2':'②','3':'③','4':'④','5':'⑤','6':'⑥','7':'⑦','8':'⑧','9':'⑨',':':'∶'},
-    "fullwidth":    {'0':'０','1':'１','2':'２','3':'３','4':'４','5':'５','6':'６','7':'７','8':'８','9':'９',':':'：'},
+    "fullwidth":    {'0':'０','1':'１','2':'２','3':'３','4':'４','5':'５','6':'６','7':'７','8':'۸','9':'۹',':':'：'},
     "filled":       {'0':'⓿','1':'❶','2':'❷','3':'❸','4':'❹','5':'❺','6':'❻','7':'❼','8':'❽','9':'❾',':':':'},
-    "sans":         {'0':'𝟢','1':'𝟣','2':'𝟤','3':'𝟥','4':'𝟤','5':'𝟧','6':'𝟨','7':'𝟩','8':'𝟪','9':'𝟫',':':':'},
+    "sans":         {'0':'𝟢','1':'𝟣','2':'𝟤','3':'𝟥','4':'𝟦','5':'𝟧','6':'𝟨','7':'𝟩','8':'𝟪','9':'𝟫',':':':'},
     "inverted":     {'0':'0','1':'Ɩ','2':'ᄅ','3':'Ɛ','4':'ㄣ','5':'ϛ','6':'9','7':'ㄥ','8':'8','9':'6',':':':'},
 }
 FONT_KEYS_ORDER = ["cursive", "stylized", "doublestruck", "monospace", "normal", "circled", "fullwidth", "filled", "sans", "inverted"]
@@ -274,7 +272,9 @@ def save_user_immediate(user_id):
     finally:
         conn.close()
 
-async def get_setting_async(name): return GLOBAL_SETTINGS.get(name)
+async def get_setting_async(name): 
+    return GLOBAL_SETTINGS.get(name)
+
 async def set_setting_async(name, value):
     GLOBAL_SETTINGS[name] = str(value)
     conn = get_db_connection()
@@ -887,6 +887,10 @@ async def continue_service_handler(update: Update, context: ContextTypes.DEFAULT
     asyncio.create_task(start_bot_instance(session_row['session_string'], session_row['phone'], 'stylized'))
     await update.message.reply_text(f"✅ سرویس مجددا فعال شد.\n💎 {cost} الماس کسر گردید.", reply_markup=get_main_keyboard(user_doc))
 
+# =======================================================
+#  Admin Panel Handlers
+# =======================================================
+
 async def admin_panel_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_doc = await get_user_async(update.effective_user.id)
     if not user_doc.get('is_owner'):
@@ -1027,8 +1031,16 @@ async def process_admin_set_balance(update: Update, context: ContextTypes.DEFAUL
     except: pass
     return ADMIN_MENU
 
-async def process_admin_set_card_number(update, context): await set_setting_async('card_number', update.message.text); await update.message.reply_text("✅", reply_markup=admin_keyboard); return ADMIN_MENU
-async def process_admin_set_card_holder(update, context): await set_setting_async('card_holder', update.message.text); await update.message.reply_text("✅", reply_markup=admin_keyboard); return ADMIN_MENU
+async def process_admin_set_card_number(update, context): 
+    await set_setting_async('card_number', update.message.text)
+    await update.message.reply_text("✅", reply_markup=admin_keyboard)
+    return ADMIN_MENU
+
+async def process_admin_set_card_holder(update, context): 
+    await set_setting_async('card_holder', update.message.text)
+    await update.message.reply_text("✅", reply_markup=admin_keyboard)
+    return ADMIN_MENU
+
 async def process_new_channel(update, context): 
     ch = update.message.text
     GLOBAL_CHANNELS[ch] = {'channel_username': ch, 'channel_title': ch}
@@ -1038,35 +1050,81 @@ async def process_new_channel(update, context):
     conn.close()
     await update.message.reply_text("✅", reply_markup=admin_keyboard)
     return ADMIN_MENU
+
 async def process_bet_photo(update, context):
-    if update.message.photo: await set_setting_async('bet_photo_file_id', update.message.photo[-1].file_id)
-    await update.message.reply_text("✅", reply_markup=admin_keyboard); return ADMIN_MENU
-async def process_admin_add_balance_id(update, context): context.user_data['tid_add'] = int(update.message.text); await update.message.reply_text("مقدار افزودن:"); return AWAIT_ADMIN_ADD_BALANCE_AMOUNT
+    if update.message.photo: 
+        await set_setting_async('bet_photo_file_id', update.message.photo[-1].file_id)
+    await update.message.reply_text("✅", reply_markup=admin_keyboard)
+    return ADMIN_MENU
+
+async def process_admin_add_balance_id(update, context): 
+    context.user_data['tid_add'] = int(update.message.text)
+    await update.message.reply_text("مقدار افزودن:")
+    return AWAIT_ADMIN_ADD_BALANCE_AMOUNT
+
 async def process_admin_add_balance_amount(update, context):
-    uid = context.user_data.pop('tid_add'); amt = int(update.message.text)
-    u = await get_user_async(uid); u['balance'] += amt; save_user_immediate(uid)
-    await update.message.reply_text("✅", reply_markup=admin_keyboard); return ADMIN_MENU
-async def process_admin_deduct_balance_id(update, context): context.user_data['tid_ded'] = int(update.message.text); await update.message.reply_text("مقدار کسر:"); return AWAIT_ADMIN_DEDUCT_BALANCE_AMOUNT
+    uid = context.user_data.pop('tid_add')
+    amt = int(update.message.text)
+    u = await get_user_async(uid)
+    u['balance'] += amt
+    save_user_immediate(uid)
+    await update.message.reply_text("✅", reply_markup=admin_keyboard)
+    return ADMIN_MENU
+
+async def process_admin_deduct_balance_id(update, context): 
+    context.user_data['tid_ded'] = int(update.message.text)
+    await update.message.reply_text("مقدار کسر:")
+    return AWAIT_ADMIN_DEDUCT_BALANCE_AMOUNT
+
 async def process_admin_deduct_balance_amount(update, context):
-    uid = context.user_data.pop('tid_ded'); amt = int(update.message.text)
-    u = await get_user_async(uid); u['balance'] -= amt; save_user_immediate(uid)
-    await update.message.reply_text("✅", reply_markup=admin_keyboard); return ADMIN_MENU
-async def process_admin_tax(update, context): await set_setting_async('bet_tax_rate', update.message.text); await update.message.reply_text("✅", reply_markup=admin_keyboard); return ADMIN_MENU
-async def process_admin_credit_price(update, context): await set_setting_async('credit_price', update.message.text); await update.message.reply_text("✅", reply_markup=admin_keyboard); return ADMIN_MENU
-async def process_admin_referral_price(update, context): await set_setting_async('referral_reward', update.message.text); await update.message.reply_text("✅", reply_markup=admin_keyboard); return ADMIN_MENU
-async def process_manage_user_id(update, context): context.user_data['tid_man'] = int(update.message.text); await update.message.reply_text("نقش (ادمین/مادریتور/کاربر عادی):"); return AWAIT_MANAGE_USER_ROLE
+    uid = context.user_data.pop('tid_ded')
+    amt = int(update.message.text)
+    u = await get_user_async(uid)
+    u['balance'] -= amt
+    save_user_immediate(uid)
+    await update.message.reply_text("✅", reply_markup=admin_keyboard)
+    return ADMIN_MENU
+
+async def process_admin_tax(update, context): 
+    await set_setting_async('bet_tax_rate', update.message.text)
+    await update.message.reply_text("✅", reply_markup=admin_keyboard)
+    return ADMIN_MENU
+
+async def process_admin_credit_price(update, context): 
+    await set_setting_async('credit_price', update.message.text)
+    await update.message.reply_text("✅", reply_markup=admin_keyboard)
+    return ADMIN_MENU
+
+async def process_admin_referral_price(update, context): 
+    await set_setting_async('referral_reward', update.message.text)
+    await update.message.reply_text("✅", reply_markup=admin_keyboard)
+    return ADMIN_MENU
+
+async def process_manage_user_id(update, context): 
+    context.user_data['tid_man'] = int(update.message.text)
+    await update.message.reply_text("نقش (ادمین/مادریتور/کاربر عادی):")
+    return AWAIT_MANAGE_USER_ROLE
+
 async def process_manage_user_role(update, context): 
-    uid = context.user_data.pop('tid_man'); role = update.message.text
+    uid = context.user_data.pop('tid_man')
+    role = update.message.text
     u = await get_user_async(uid)
     if role == "ادمین": u['is_admin']=True; u['is_moderator']=False
     elif role == "مادریتور": u['is_admin']=False; u['is_moderator']=True
     else: u['is_admin']=False; u['is_moderator']=False
     save_user_immediate(uid)
-    await update.message.reply_text("✅", reply_markup=admin_keyboard); return ADMIN_MENU
-async def process_admin_broadcast(update, context):
-    await update.message.reply_text("پیام ارسال شد.", reply_markup=admin_keyboard); return ADMIN_MENU
+    await update.message.reply_text("✅", reply_markup=admin_keyboard)
+    return ADMIN_MENU
 
-# --- Deposit Functions ---
+async def process_admin_broadcast(update, context):
+    # Broadcast logic here
+    await update.message.reply_text("پیام ارسال شد.", reply_markup=admin_keyboard)
+    return ADMIN_MENU
+
+# =======================================================
+#  Deposit Functions
+# =======================================================
+
 async def deposit_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("لطفا تعداد الماسی که قصد خرید دارید را وارد کنید:", reply_markup=ReplyKeyboardRemove())
     return AWAIT_DEPOSIT_AMOUNT
@@ -1125,7 +1183,10 @@ async def process_deposit_receipt(update: Update, context: ContextTypes.DEFAULT_
     context.user_data.clear()
     return ConversationHandler.END
 
-# --- Support Functions ---
+# =======================================================
+#  Support Functions
+# =======================================================
+
 async def support_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("لطفا پیام خود را برای ارسال به پشتیبانی بنویسید:", reply_markup=ReplyKeyboardRemove())
     return AWAIT_SUPPORT_MESSAGE
@@ -1140,7 +1201,10 @@ async def process_support_message(update: Update, context: ContextTypes.DEFAULT_
     await update.message.reply_text("✅ پیام شما با موفقیت برای تیم پشتیبانی ارسال شد.", reply_markup=get_main_keyboard(user_doc))
     return ConversationHandler.END
 
-# --- Admin Reply Functions ---
+# =======================================================
+#  Admin Reply Functions
+# =======================================================
+
 async def admin_support_reply_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -1160,7 +1224,10 @@ async def process_admin_support_reply(update: Update, context: ContextTypes.DEFA
     context.user_data.clear()
     return ConversationHandler.END
 
-# --- Callback & Inline Handlers ---
+# =======================================================
+#  Callback & Inline Handlers
+# =======================================================
+
 async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.inline_query.query
     if query == "panel":
@@ -1245,7 +1312,7 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
 
     if data.startswith("bet_"):
         bet_id = int(data.split('_')[2])
-        if 'join' in data: await query.edit_message_text("✅ شما به شرط پیوستید! (darkself)")
+        if 'join' in data: await query.edit_message_text("✅ شما به شرط پیوستید!")
         elif 'cancel' in data: await query.edit_message_text("❌ شرط لغو شد.")
         return
 
@@ -1300,23 +1367,6 @@ async def start_bet_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     BET_ID_COUNTER += 1
     await update.message.reply_text(text, reply_markup=kb)
 
-async def cancel_bet_job(context: ContextTypes.DEFAULT_TYPE):
-    job = context.job
-    bet_id = job.data['bet_id']
-    chat_id = job.data['chat_id']
-    message_id = job.data['message_id']
-    if bet_id in GLOBAL_BETS and GLOBAL_BETS[bet_id].get('status') == 'pending':
-        deleted_bet = GLOBAL_BETS.pop(bet_id)
-        conn = get_db_connection()
-        conn.execute('DELETE FROM bets WHERE bet_id = ?', (bet_id,))
-        conn.commit()
-        conn.close()
-        try:
-            await context.bot.edit_message_caption(chat_id=chat_id, message_id=message_id, caption=f"⏰ شرط‌بندی روی تعداد {deleted_bet['amount']} الماس منقضی شد.", reply_markup=None)
-        except:
-             try: await context.bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=f"⏰ شرط‌بندی روی تعداد {deleted_bet['amount']} الماس منقضی شد.", reply_markup=None)
-             except: pass
-
 async def membership_check_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     chat = update.effective_chat
@@ -1366,7 +1416,7 @@ async def membership_check_handler(update: Update, context: ContextTypes.DEFAULT
         raise ApplicationHandlerStop
 
 # =======================================================
-#  بخش ۴: توابع اضافه شده
+#  Additional Handlers
 # =======================================================
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1435,7 +1485,7 @@ async def deduct_balance_handler(update: Update, context: ContextTypes.DEFAULT_T
     except: pass
 
 # =======================================================
-#  بخش ۸: اجرای اصلی
+#  Post Init
 # =======================================================
 
 async def post_init(application: Application):
@@ -1462,6 +1512,10 @@ async def post_init(application: Application):
     
     if application.job_queue:
         application.job_queue.run_repeating(billing_job, interval=60, first=10)
+
+# =======================================================
+#  Main Function
+# =======================================================
 
 def main():
     from telegram.request import HTTPXRequest
@@ -1578,7 +1632,11 @@ def main():
     application.add_handler(CallbackQueryHandler(callback_query_handler))
     
     # اجرای ربات
+    logging.info("🚀 ربات در حال اجرا...")
     application.run_polling(
         allowed_updates=Update.ALL_TYPES,
         drop_pending_updates=True
     )
+
+if __name__ == "__main__":
+    main()
